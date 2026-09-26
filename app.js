@@ -6,7 +6,30 @@ const money = n => `${fmt(n)}万`;
 const KEY = 'corporate-entropy-save-v1';
 const titles = { overview: '経営概況', people: '人材・組織', market: '市場・M&A', board: '取締役会', history: '会社年表' };
 const stages = ['STARTUP', 'DEPARTMENTS', 'MANAGEMENT', 'CORPORATION', 'AUTONOMOUS'];
-let state = null, tab = 'overview', timer = null, selected = 'tech', deptFilter = '全員', sortPeople = 'ability', hireDept = '開発', modalType = '', toastTimer, preview = true;
+let state = null, tab = 'overview', selected = 'tech', deptFilter = '全員', sortPeople = 'ability', hireDept = '開発', modalType = '', toastTimer, preview = true;
+const PREFS_KEY = 'corporate-entropy-preferences-v1';
+let preferences = { mode: 'beginner', sound: true, volume: .25 };
+try {
+  const p = JSON.parse(localStorage.getItem(PREFS_KEY));
+  if (p) preferences = { mode: p.mode === 'advanced' ? 'advanced' : 'beginner', sound: p.sound !== false, volume: Number.isFinite(p.volume) ? Math.max(0, Math.min(1, p.volume)) : .25 };
+} catch { /* Preferences are optional, including with older saves. */ }
+const sound = new UI.Sound(preferences.sound, preferences.volume);
+const playback = new UI.Playback({ tick: advance, canRun: () => !!state && !preview && !state.ended && !state.event && !modalType && !document.hidden, speed: () => Number($('speed').value), changed: running => { $('pause').textContent = running ? 'Ⅱ 停止' : '▶ 再生'; } });
+const beginner = () => preferences.mode === 'beginner';
+function savePreferences() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(preferences)); } catch { /* Play still works without storage. */ } }
+function updatePreferences() {
+  $('experience').value = preferences.mode;
+  $('sound-toggle').textContent = preferences.sound ? '♪ 音 ON' : '♪ 音 OFF';
+  $('sound-toggle').setAttribute('aria-pressed', String(preferences.sound));
+  $('volume').value = Math.round(preferences.volume * 100);
+  document.body.classList.toggle('beginner', beginner());
+}
+function modeChooser() { return `<div class="mode-chooser" role="group" aria-label="説明モード"><button data-mode="beginner" aria-pressed="${beginner()}" class="${beginner() ? 'selected' : ''}"><b>初心者モード</b><small>用語・数字の意味と、今考えることを説明</small></button><button data-mode="advanced" aria-pressed="${!beginner()}" class="${!beginner() ? 'selected' : ''}"><b>ガチ勢モード</b><small>これまでの高密度ダッシュボード</small></button></div>`; }
+function setMode(mode) {
+  preferences.mode = mode === 'advanced' ? 'advanced' : 'beginner'; savePreferences(); updatePreferences(); render();
+  if (modalType === 'event') eventModal();
+  document.querySelectorAll('[data-mode]').forEach(b => { b.classList.toggle('selected', b.dataset.mode === preferences.mode); b.setAttribute('aria-pressed', String(b.dataset.mode === preferences.mode)); });
+}
 let saved = null;
 try { const data = localStorage.getItem(KEY); if (data) saved = Sim.restore(data); } catch { /* A damaged or unavailable save must not block founding. */ }
 
@@ -17,32 +40,38 @@ function save(manual = false) {
   try { localStorage.setItem(KEY, Sim.serialize(state)); saved = Sim.restore(Sim.serialize(state)); $('save-status').textContent = `保存済み：W${state.week} · ${new Date().toLocaleTimeString('ja-JP')}`; if (manual) toast('このブラウザに保存しました'); }
   catch { $('save-status').textContent = '保存不可：ブラウザのストレージを確認'; if (manual) toast('保存できません。ブラウザの保存設定を確認してください'); }
 }
-function pause() { clearInterval(timer); timer = null; $('pause').textContent = '▶ 再生'; }
+function pause() { playback.pause(); }
 function play() {
   if (!state || state.ended || modalType || state.event) return;
-  if (timer) { pause(); return; }
-  $('pause').textContent = 'Ⅱ 停止'; timer = setInterval(advance, Number($('speed').value));
+  if (playback.running) { pause(); sound.play('click'); return; }
+  playback.start(); sound.play('start');
 }
 function advance() {
   if (!state || state.ended || modalType) return;
-  Sim.step(state); render(); save();
-  if (state.event) { pause(); eventModal(); }
-  else if (state.ended) { pause(); endModal(); }
+  if (!Sim.step(state)) return;
+  render(); save();
+  if (state.event) eventModal();
+  else if (state.ended) endModal();
+  else sound.play('tick');
 }
 function openModal(type, html) {
-  pause(); modalType = type;
+  playback.openModal(type === 'end'); modalType = type;
+  if (type === 'found') html = html.replace('<div class="company-input">', `${modeChooser()}<div class="company-input">`);
   $('modal-root').innerHTML = `<div class="modal-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">${html}</section></div>`;
   $('modal-root').querySelector('.modal').focus();
 }
-function closeModal() { modalType = ''; $('modal-root').innerHTML = ''; $('step').focus(); }
+function closeModal(resume = true) { modalType = ''; $('modal-root').innerHTML = ''; $('step').focus(); playback.closeModal(resume); }
 function foundingModal() {
   openModal('found', `<div class="modal-top"><span>NEW VENTURE / 001</span>${!preview ? '<button class="close-modal" data-close aria-label="閉じる">×</button>' : ''}</div><h2 id="modal-title">あなたの会社は、<br>どこまで制御できるか。</h2><p>売上、社員、会議、そして問題。増えていく数字の向こうで、<br>組織はいつの間にか、あなたの手を離れていく。</p><div class="company-input"><label for="company-name">会社名</label><input id="company-name" maxlength="24" value="ノヴァ株式会社" autocomplete="off"></div><div class="strategy-grid">${Object.entries(Sim.STRATEGIES).map(([id, st]) => `<button class="strategy ${id === selected ? 'selected' : ''}" data-strategy="${id}"><b>${st.name} ${id === selected ? '↗' : ''}</b><small>${st.desc}</small></button>`).join('')}</div><div class="help-callout">資本金 1,000万円 · 創業メンバー 6名<br>1週に3つの決裁。イベント中は時間停止。大企業ほど決裁権が減ります。</div><div class="modal-actions">${saved ? '<button data-resume>保存した会社を再開</button>' : ''}<button class="primary" data-found>会社を設立する →</button></div>${saved ? '<p class="hint">設立すると、このブラウザの既存セーブを上書きします。</p>' : ''}`);
 }
 function eventModal() {
+  if (modalType !== 'event') sound.play('alert');
+  const resumes = playback.running || playback.resumePending;
   const ev = Sim.EVENTS.find(e => e.id === state.event.id);
-  openModal('event', `<div class="modal-top"><span>DECISION REQUIRED</span><span class="warn">TIME PAUSED</span></div><div class="event-meta"><span>W${state.week.toString().padStart(3, '0')}</span><span>CEO決裁 / 決裁枠は消費しません</span></div><h2 id="modal-title">${ev.title}</h2><p>${ev.text}</p>${ev.choices.map((c, i) => `<button class="event-choice" data-choice="${i}"><b>${i + 1}. ${c.label} →</b><small>${c.note}</small></button>`).join('')}<p class="hint">資金 ${money(state.cash)}円 / 信用 ${fmt(state.trust)} / 法務リスク ${fmt(state.legal)}。資金不足でも判断できますが、支払い不能になると倒産します。</p>`);
+  openModal('event', `<div class="modal-top"><span>DECISION REQUIRED</span><span class="warn">TIME PAUSED</span></div><div class="event-meta"><span>W${state.week.toString().padStart(3, '0')}</span><span>CEO決裁 / 決裁枠は消費しません</span></div><h2 id="modal-title">${ev.title}</h2><p>${ev.text}</p>${beginner() ? '<div class="help-callout">目先のお金だけでなく、社員・お客さん・将来の費用も比べましょう。下の数値は、今の値からどれだけ変わるかを表しています。</div>' : ''}${ev.choices.map((c, i) => `<button class="event-choice" data-choice="${i}"><b>${i + 1}. ${c.label} →</b><small>${c.note}</small>${beginner() ? `<span class="choice-guide">${UI.choiceGuide(c)}</span>` : ''}</button>`).join('')}<p class="hint">資金 ${money(state.cash)}円 / 信用 ${fmt(state.trust)} / 法務リスク ${fmt(state.legal)}。資金不足でも判断できますが、支払い不能になると倒産します。</p><p class="hint">${resumes ? '選択すると、元の速度で再生を自動再開します。' : '停止中のため、選択後も停止を維持します。'}</p>`);
 }
 function endModal() {
+  sound.play('end');
   openModal('end', `<div class="modal-top"><span>END OF TENURE</span><button class="close-modal" data-close aria-label="閉じる">×</button></div><h2 id="modal-title" class="${state.ended.retired ? 'positive' : 'end-title'}">${state.ended.retired ? '会社は、あなたを超えた。' : '数字だけでは、守れなかった。'}</h2><p>${esc(state.name)} / ${esc(state.ended.reason)}</p>${endStats()}<p>売上が伸びても、現金・信用・現場は別の速度で動きます。<br>今回の経営判断は、会社年表に残っています。</p><div class="modal-actions"><button data-end-history>会社年表を読む</button><button class="primary" data-new>もう一度、創業する →</button></div>`);
 }
 function helpModal() {
@@ -71,10 +100,10 @@ function kpis() {
     ['営業利益', 'OPERATING PROFIT', `${settled.profit >= 0 ? '+' : ''}${fmt(settled.profit)}`, '万円 / 週', delta('profit'), 'profit', settled.profit >= 0 ? 'cyan' : 'negative'],
     ['社員数', 'HEADCOUNT', fmt(state.employees.length), '名', `累計離職 ${state.stats.departures}名 · 管理職 ${state.managers}名`, 'employees', '']
   ];
-  $('kpis').innerHTML = list.map(([label, en, n, unit, foot, key, cls]) => `<article class="kpi"><div class="kpi-label">${label}<span>${en}</span></div><div class="kpi-value ${cls}">${n}<small>${unit}</small></div>${spark(key, cls === 'negative' ? '#ff7c83' : '#b4ef65')}<div class="kpi-foot"><span>${foot}</span><span>${key === 'employees' ? stages[state.stage] : 'JPY'}</span></div></article>`).join('');
+  $('kpis').innerHTML = list.map(([label, en, n, unit, foot, key, cls]) => `<article class="kpi"><div class="kpi-label">${label}<span>${en}</span></div><div class="kpi-value ${cls}">${n}<small>${unit}</small></div>${spark(key, cls === 'negative' ? '#ff7c83' : '#b4ef65')}<div class="kpi-foot"><span>${foot}</span><span>${key === 'employees' ? stages[state.stage] : 'JPY'}</span></div>${beginner() ? `<p class="metric-guide">${UI.METRICS[label]}</p>` : ''}</article>`).join('');
 }
 function metric(label, value, unit = '', level = null, bad = false) {
-  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${bad ? 'negative' : ''}">${value}<small>${unit}</small></div>${level === null ? '' : meter(level, bad ? 'var(--red)' : 'var(--cyan)')}</div>`;
+  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${bad ? 'negative' : ''}">${value}<small>${unit}</small></div>${level === null ? '' : meter(level, bad ? 'var(--red)' : 'var(--cyan)')}${beginner() ? `<p class="metric-guide">${UI.METRICS[label] || ''}</p>` : ''}</div>`;
 }
 function allMetrics() {
   const s = state, m = s.metrics;
@@ -94,7 +123,7 @@ function allMetrics() {
 function actions() {
   return panel('経営アクション', `<div class="forecast"><span>翌週予測：売上 ${money(state.metrics.revenue)}円 / 利益 ${money(state.metrics.profit)}円</span><span>毎週の費用に注意</span></div><div class="actions-grid">${Object.entries(Sim.ACTIONS).map(([id, a]) => {
     const reason = Sim.available(state, id);
-    return `<button class="action" data-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || a.desc)}"><b>${a.name}<span>${a.cost ? `${a.cost}万` : '→'}</span></b><small>${a.desc}</small>${reason ? `<div class="action-lock">${reason}</div>` : ''}</button>`;
+    return `<button class="action" data-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || a.desc)}"><b>${a.name}<span>${a.cost ? `${a.cost}万` : '→'}</span></b><small>${a.desc}</small>${beginner() ? `<span class="action-guide">${UI.ACTIONS[id]}</span>` : ''}${reason ? `<div class="action-lock">${reason}</div>` : ''}</button>`;
   }).join('')}</div><div class="action-selector">採用先<select id="hire-dept" aria-label="採用先部署">${Sim.DEPTS.map(d => `<option ${hireDept === d ? 'selected' : ''}>${d}</option>`).join('')}</select> <span class="hint">部署を変えると自動改善する指標も変わります。</span></div>`, `<span class="tag">決裁枠 ${state.actionsLeft} / ${state.stage >= 3 ? 2 : 3}</span>`);
 }
 function chartPanel() {
@@ -116,7 +145,11 @@ function news() {
   return panel('マーケットワイヤー', `<div class="news-item"><small>ECONOMY / NOW</small>${state.economy > 1.08 ? '景気は拡大。受注機会と人材争奪が増加。' : state.economy < .9 ? '消費が減速。価格と固定費への圧力。' : '市場は平常運転。競合は次の一手を探る。'}</div>${market.map(l => `<div class="news-item"><small>MARKET / W${l.week}</small>${esc(l.text)}</div>`).join('')}<div class="news-item"><small>ORGANIZATION / CULTURE</small>${Sim.culture(state)} · ${stages[state.stage]}<br><span class="hint">12名：部署 / 20名：役員 / 60名：政治 / 120名：株主・自律化</span></div>`, '<span class="live-dot"></span>');
 }
 function pendingPanel() { return panel('進行中の案件', state.pending.length ? state.pending.map(p => `<div class="news-item"><small>DUE W${p.due} · あと${p.due - state.week}週</small>${esc(p.text)}</div>`).join('') : '<div class="note">未決案件はありません。研究開発や経営判断の遅延効果がここに表示されます。</div>', `<small>${state.pending.length} PENDING</small>`); }
-function overview() { return `<div class="layout"><div class="stack">${chartPanel()}${allMetrics()}${actions()}</div><aside class="stack">${health()}${news()}${logs()}${pendingPanel()}</aside></div>`; }
+function overview() { return `<div class="layout"><div class="stack">${beginner() ? `${chartPanel()}${actions()}<details class="guide-details"><summary>30指標の意味と現在値を詳しく見る</summary>${allMetrics()}</details>` : `${chartPanel()}${allMetrics()}${actions()}`}</div><aside class="stack">${health()}${news()}${logs()}${pendingPanel()}</aside></div>`; }
+function coaching() {
+  const context = { overview: '1万円＝10,000円。「1週進める」で会社の収入と支出が計算されます。決裁枠は今週選べる操作の回数です。', people: '部署は社員の役割です。営業は注文、開発は技術、人事は応募、経理は管理、広報は認知、法務は法律上の安全に貢献します。人数だけ増やすと給与も増えます。', market: '競合は同じお客さんを取り合う会社です。買収は他社を丸ごと引き取ること。社員や技術だけでなく、借金と組織の問題も引き継ぎます。', board: '役員は担当分野の責任者です。全員の提案を採用すると、目的がぶつかります。委任はあなたの代わりにお金と決裁枠を使って判断する設定です。', history: '年表はこれまでの判断と、その後に起きた出来事の記録です。失敗したときは、最後の数字だけでなく問題が始まった判断を振り返ってみましょう。' };
+  return `<section class="coach"><div class="coach-heading"><b>はじめての経営 / ${titles[tab]}</b><span>説明だけを追加 · 数値・難易度は同じ</span></div><p>${context[tab]}</p>${tab === 'overview' ? `<div class="coach-tips">${UI.priorities(state).map(t => `<article><small>${t.focus}</small><h3>${t.title}</h3><p>${t.text}</p></article>`).join('')}</div>` : ''}</section>`;
+}
 const goals = { 営業: ['売上と受注', '供給能力に関係なく、契約を増やしたい。'], 開発: ['技術品質', '新機能を延期しても、基盤を直したい。'], 人事: ['定着と採用', '待遇改善にお金を使いたい。'], 経理: ['管理と利益', '投資を抑え、管理精度を高めたい。'], 広報: ['ブランド認知', '露出を増やしたい。炎上も認知になる。'], 法務: ['コンプライアンス', '成長を遅らせても、リスクを潰したい。'] };
 function people() {
   const depts = state.stage >= 1 ? `<div class="three-col">${Sim.DEPTS.map(d => {
@@ -162,7 +195,7 @@ function render() {
   $('ticker').innerHTML = `<span><span class="live-dot"></span> ${stages[state.stage]}</span><span>ECONOMY <b class="${state.economy >= 1 ? 'up' : 'down'}">${fmt(state.economy, 2)}×</b></span>${state.rivals.map(r => `<span>${r.name} <b>${fmt(r.share, 1)}%</b> <span class="${r.status === '競争中' ? 'cyan' : 'down'}">${r.status}</span></span>`).join('')}<span>CONTROL <b class="warn">${fmt(state.metrics.control)}%</b></span>`;
   const warning = state.metrics.load > 100 ? `サーバー負荷${fmt(state.metrics.load)}%。広告による需要が処理能力を超えています。` : state.morale < 50 ? '士気が低下。離職が生産力と残った社員に連鎖します。' : state.cash < 250 ? '手元資金が少なくなっています。利益と固定費を確認してください。' : state.legal > 60 ? '法務リスクが上昇。内部監査や法務の採用が必要です。' : '';
   $('alerts').innerHTML = state.ended ? `<div class="end-inline"><button data-end-show>最終レポート</button>${esc(state.ended.reason)} · 年表で経営を振り返れます。</div>` : state.event ? '<div class="alert-bar">△ 未解決の経営判断があります。<button data-event-show>判断を開く →</button></div>' : warning ? `<div class="alert-bar">△ ${warning}</div>` : '';
-  kpis(); $('content').innerHTML = ({ overview, people, market, board, history })[tab]();
+  updatePreferences(); kpis(); $('content').innerHTML = (beginner() ? coaching() : '') + ({ overview, people, market, board, history })[tab]();
   drawChart();
 }
 function drawChart() {
@@ -185,32 +218,40 @@ function drawChart() {
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   const d = b.dataset;
+  if (b.id !== 'pause' && !d.choice && !d.action) sound.play('click');
   if (d.tab) { tab = d.tab; render(); }
   else if (d.strategy) { selected = d.strategy; document.querySelectorAll('[data-strategy]').forEach(el => { el.classList.toggle('selected', el.dataset.strategy === selected); }); }
-  else if ('found' in d) { state = Sim.create($('company-name').value, selected); preview = false; tab = 'overview'; closeModal(); render(); save(); toast('創業しました。まずは1週進めて決算を確認しましょう'); }
-  else if ('resume' in d) { state = Sim.restore(Sim.serialize(saved)); preview = false; closeModal(); render(); if (state.event) eventModal(); else if (state.ended) endModal(); }
+  else if (d.mode) setMode(d.mode);
+  else if ('found' in d) { state = Sim.create($('company-name').value, selected); preview = false; tab = 'overview'; closeModal(false); render(); save(); sound.play('confirm'); toast('創業しました。まずは1週進めて決算を確認しましょう'); }
+  else if ('resume' in d) { state = Sim.restore(Sim.serialize(saved)); preview = false; closeModal(false); render(); if (state.event) eventModal(); else if (state.ended) endModal(); }
   else if ('close' in d) closeModal();
-  else if (d.action) { const result = Sim.act(state, d.action, $('hire-dept')?.value || '開発'); if (!result.ok) toast(result.reason); render(); save(); if (state.ended) endModal(); }
-  else if (d.choice !== undefined) { Sim.decide(state, Number(d.choice)); closeModal(); render(); save(); if (state.ended) endModal(); }
+  else if (d.action) { const result = Sim.act(state, d.action, $('hire-dept')?.value || '開発'); sound.play(result.ok ? 'confirm' : 'error'); if (!result.ok) toast(result.reason); render(); save(); if (state.ended) endModal(); }
+  else if (d.choice !== undefined) { const result = Sim.decide(state, Number(d.choice)); sound.play(result.ok ? 'confirm' : 'error'); closeModal(); render(); save(); if (state.ended) endModal(); }
   else if (d.acquire !== undefined) {
     const r = state.rivals.find(r => r.id === Number(d.acquire));
     openModal('acquire', `<div class="modal-top"><span>ACQUISITION REVIEW</span><button class="close-modal" data-close aria-label="閉じる">×</button></div><h2 id="modal-title">${r.name} を統合する</h2><p>買収費用 ${money(Sim.valuation(r))}円 / 社員 ${r.staff}名 / 継承負債 ${money(r.debt)}円</p><div class="help-callout">設備・サーバー・技術・ブランドを獲得。<br>士気−12 / 会議＋8 / 法務＋8<br>6週後：統合費用 ${r.staff * 4}万円とエース社員の退職。</div><div class="modal-actions"><button data-close>見送る</button><button class="primary" data-buy="${r.id}">買収を実行 →</button></div>`);
   }
-  else if (d.buy !== undefined) { const result = Sim.acquire(state, Number(d.buy)); closeModal(); if (!result.ok) toast(result.reason); render(); save(); }
+  else if (d.buy !== undefined) { const result = Sim.acquire(state, Number(d.buy)); sound.play(result.ok ? 'confirm' : 'error'); closeModal(); if (!result.ok) toast(result.reason); render(); save(); }
   else if ('new' in d) foundingModal();
   else if ('eventShow' in d) eventModal();
   else if ('endShow' in d) endModal();
   else if ('endHistory' in d) { closeModal(); tab = 'history'; render(); }
 });
 $('pause').addEventListener('click', play); $('step').addEventListener('click', advance);
-$('speed').addEventListener('change', () => { if (timer) { pause(); play(); } });
+$('speed').addEventListener('change', () => { if (playback.running) { pause(); play(); } });
 $('save').addEventListener('click', () => save(true)); $('restart').addEventListener('click', foundingModal); $('help').addEventListener('click', helpModal);
 document.addEventListener('change', e => {
+  if (e.target.id === 'experience') setMode(e.target.value);
   if (e.target.id === 'hire-dept') hireDept = e.target.value;
   if (e.target.id === 'dept-filter') { deptFilter = e.target.value; render(); }
   if (e.target.id === 'people-sort') { sortPeople = e.target.value; render(); }
   if (e.target.id === 'autonomy') { state.autonomy = e.target.value; save(); toast('委任ポリシーを変更しました'); }
 });
+$('sound-toggle').addEventListener('click', () => { preferences.sound = !preferences.sound; sound.setEnabled(preferences.sound); savePreferences(); updatePreferences(); });
+$('volume').addEventListener('input', e => { preferences.volume = Number(e.target.value) / 100; sound.volume = preferences.volume; savePreferences(); });
+$('volume').addEventListener('change', () => sound.play('confirm'));
+document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
+document.addEventListener('keydown', () => sound.unlock(), { capture: true });
 document.addEventListener('keydown', e => {
   if (e.key === 'Tab' && modalType) {
     const focusable = [...$('modal-root').querySelectorAll('button:not(:disabled),input,select')];

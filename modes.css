@@ -1,0 +1,29 @@
+/* Explanation mode adds context without changing the expert dashboard. */
+.header-tools{align-items:center}
+#experience{font-size:11px;padding:6px 8px}
+#volume{width:64px;min-width:45px;height:5px;padding:0;border:0;accent-color:var(--green);cursor:pointer}
+.mode-chooser{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:20px 0}
+.mode-chooser button{text-align:left;padding:14px}
+.mode-chooser b{display:block;font-size:12px;margin-bottom:7px}
+.mode-chooser small{display:block;color:var(--muted);font-size:10px;line-height:1.7}
+.mode-chooser .selected{border-color:var(--green);background:#233025;color:var(--green)}
+.metric-guide{font-size:11px;color:#9cb1bc;line-height:1.8;margin:11px 0 0;border-top:1px solid #26343c;padding-top:10px}
+.action-guide,.choice-guide{display:block;font-size:11px;color:#bfd0ba;line-height:1.8;margin-top:10px;border-top:1px solid #2c3f36;padding-top:9px}
+.coach{margin-bottom:18px;padding:17px 20px;background:#15221d;border:1px solid #355447;border-radius:6px}
+.coach-heading{display:flex;justify-content:space-between;gap:12px;color:var(--green);font-size:12px}
+.coach-heading span{font-size:10px;color:#8faf9e}
+.coach p{font-size:12px;color:#bdd0c4;line-height:1.9;margin:10px 0 0}
+.coach-tips{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:15px}
+.coach-tips article{padding:12px 15px;background:#101a17;border-radius:5px;border:1px solid #293d33}
+.coach-tips small{font-size:10px;color:var(--amber)}
+.coach-tips h3{font-size:13px;margin:8px 0 0;font-weight:500}
+.coach-tips p{font-size:11px}
+.guide-details{border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.guide-details summary{cursor:pointer;padding:16px;color:var(--cyan);font-size:12px}
+.guide-details summary:focus-visible{outline:2px solid var(--green)}
+.guide-details .panel{border:0;border-radius:0}
+.beginner .spark{display:none}
+.beginner .kpi-value{font-size:27px}
+.beginner .action small{color:#98aab7}
+@media(max-width:1180px){header .breadcrumb{display:none}header{justify-content:flex-end}}
+@media(max-width:600px){.header-tools{flex-wrap:wrap;justify-content:flex-end}header{height:auto;min-height:76px;padding:10px 0}.coach-heading{flex-direction:column;gap:6px}.mode-chooser{grid-template-columns:1fr}}
