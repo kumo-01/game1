@@ -29,7 +29,7 @@ jobs:
       - name: Prepare static game
         run: |
           mkdir -p _site
-          cp index.html style.css modes.css life.css app.js engine.js ui-tools.js company-life.js .nojekyll _site/
+          cp expansion.js expansion.css index.html style.css modes.css life.css app.js engine.js ui-tools.js company-life.js .nojekyll _site/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:

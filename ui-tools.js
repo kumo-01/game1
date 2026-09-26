@@ -44,12 +44,12 @@
       if (!this.enabled || this.volume <= 0) return;
       this.unlock(); const ctx = this.context;
       if (!ctx || ctx.state !== 'running') return;
-      const notes = { click: [650], tick: [360, 480], confirm: [520, 780], alert: [660, 440, 660], error: [210, 160], end: [330, 260, 196], start: [440, 660], save: [780, 980] }[kind] || [650];
+      const notes = { click: [880, 1320], tick: [392, 523], confirm: [523, 659, 784, 1047], celebrate: [523, 659, 784, 1047, 1319, 1568], alert: [784, 587, 784], error: [220, 147], end: [330, 260, 196], start: [523, 784, 1047], save: [784, 1047, 1319] }[kind] || [650];
       const length = kind === 'click' || kind === 'tick' ? .035 : .095;
       try {
         notes.forEach((frequency, i) => {
           const osc = ctx.createOscillator(), gain = ctx.createGain(), at = ctx.currentTime + i * (length + .025);
-          osc.type = kind === 'end' ? 'triangle' : 'sine'; osc.frequency.value = frequency;
+          osc.type = ['end','click','confirm','celebrate'].includes(kind) ? 'triangle' : 'sine'; osc.frequency.value = frequency;
           gain.gain.setValueAtTime(.0001, at);
           gain.gain.exponentialRampToValueAtTime(Math.max(.0001, this.volume * (kind === 'tick' ? .055 : .16)), at + .007);
           gain.gain.exponentialRampToValueAtTime(.0001, at + length);
@@ -91,9 +91,9 @@
     平均ストレス: '社員が抱える負担の平均。高いと生産力が落ち、辞めやすくなります。',
     平均忠誠度: '社員がこの会社に残りたい気持ちの平均。給与削減で下がり、低いと退職が増えます。',
     会議密度: '会議が仕事を占める度合い。管理職の増加で上がり、実際に管理効率を下げます。',
-    CEOカリスマ: 'あなたが頼れる経営者に見えている度合い。利益と士気で変動する状態表示です。',
+    CEOカリスマ: 'あなたが頼れる経営者に見えている度合い。利益と士気で変動し、商品を買いたい人の数にも影響します。',
     社内空気: '士気を天気で表したもの。晴れは元気、曇りは不安、雷雨は深刻な状態です。',
-    'スライド / 社員': '社員1人あたりの資料の量。会議の多さを表すお笑い指標で、これ自体に直接の補正はありません。',
+    'スライド / 社員': '社員1人あたりの資料の量。増えすぎると資料作りが仕事を圧迫し、管理効率が下がります。',
     意味のないKPI: '測ること自体が目的になった目標の数。増えると実際に管理効率が下がります。',
     販売単価: '商品1個の値段。「1.25万」は12,500円。値上げで1個の売上は増えますが、注文は減ります。',
     '設備 / サーバー容量': '左は作れる数の上限、右は処理できる注文の数。社員を採用するだけでは設備の上限は増えません。',

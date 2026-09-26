@@ -54,12 +54,12 @@ test('synthesized feedback has bounded volume, finite duration, cleanup and mute
   const nodes = [], peaks = [];
   const context = { state: 'running', currentTime: 10, destination: {}, suspend() { this.state = 'suspended'; return Promise.resolve(); }, resume() { this.state = 'running'; return Promise.resolve(); }, createOscillator() { const node = { frequency: {}, connect() {}, disconnect() { this.cleaned = true; }, start(at) { this.started = at; }, stop(at) { this.stopped = at; } }; nodes.push(node); return node; }, createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime(value) { peaks.push(value); } }, connect() {}, disconnect() {} }; } };
   const sound = new Sound(true, .25, () => context);
-  sound.play('confirm'); assert.equal(nodes.length, 2);
+  sound.play('confirm'); assert.equal(nodes.length, 4);
   assert.ok(peaks.every(v => v > 0 && v <= .04));
   assert.ok(nodes.every(n => n.stopped > n.started && n.stopped - n.started < .2));
   nodes.forEach(n => n.onended()); assert.ok(nodes.every(n => n.cleaned));
   sound.setEnabled(false); assert.equal(context.state, 'suspended');
-  sound.play('alert'); assert.equal(nodes.length, 2);
+  sound.play('alert'); assert.equal(nodes.length, 4);
 });
 test('beginner explanations cover every decision and explain real risks and delayed costs', () => {
   for (const id of Object.keys(Sim.ACTIONS)) assert.ok(ACTIONS[id]?.length > 20, id);

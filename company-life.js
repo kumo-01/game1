@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
   const Sound = typeof module !== 'undefined' && module.exports ? require('./ui-tools').Sound : root.UI.Sound;
-  // An original ambient loop, synthesized entirely in the browser.
+  // Original upbeat office groove, synthesized entirely in the browser.
   class Music extends Sound {
     constructor(enabled = true, volume = .12, contextFactory = null, timers = {}) {
       super(enabled, volume, contextFactory);
@@ -32,6 +32,24 @@
       osc.onended = () => { osc.disconnect(); gain.disconnect(); this.nodes.delete(node); };
       osc.start(at); osc.stop(at + duration + .02);
     }
+    drum(kind, at) {
+      const ctx = this.context;
+      if (kind === 'kick') {
+        const osc = ctx.createOscillator(), gain = ctx.createGain();
+        osc.frequency.setValueAtTime(145, at); osc.frequency.exponentialRampToValueAtTime(45, at + .13);
+        gain.gain.setValueAtTime(.32, at); gain.gain.exponentialRampToValueAtTime(.0001, at + .19);
+        osc.connect(gain); gain.connect(this.master);
+        const node = {osc,gain}; this.nodes.add(node); osc.onended=()=>{osc.disconnect();gain.disconnect();this.nodes.delete(node);}; osc.start(at); osc.stop(at+.2); return;
+      }
+      // Seeded noise provides hats and snare without touching the simulation RNG.
+      if (!ctx.createBuffer || !ctx.createBufferSource) return;
+      const duration=kind === 'snare' ? .12 : .035;
+      const buffer=ctx.createBuffer(1,Math.ceil(ctx.sampleRate*duration),ctx.sampleRate), data=buffer.getChannelData(0);
+      let seed=12345+this.beat; for(let i=0;i<data.length;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;data[i]=(seed/2147483648-1)*(1-i/data.length);}
+      const osc=ctx.createBufferSource(), gain=ctx.createGain(); osc.buffer=buffer;
+      gain.gain.setValueAtTime(kind === 'snare' ? .12 : .055,at); gain.gain.exponentialRampToValueAtTime(.0001,at+duration);
+      osc.connect(gain);gain.connect(this.master);const node={osc,gain};this.nodes.add(node);osc.onended=()=>{osc.disconnect();gain.disconnect();this.nodes.delete(node);};osc.start(at);osc.stop(at+duration+.01);
+    }
     schedule() {
       if (!this.wanted || !this.context || this.context.state !== 'running') return;
       const ctx = this.context;
@@ -42,12 +60,17 @@
           const chord = [[0, 4, 7], [-3, 0, 4], [-7, -3, 0], [-5, -1, 2]][Math.floor(this.beat / 8) % 4];
           const minor = this.mood === 'tense' ? -1 : 0;
           const pitch = n => 130.81 * Math.pow(2, n / 12);
-          if (this.beat % 8 === 0) chord.forEach((n, i) => this.note(pitch(n + (i === 1 ? minor : 0)), this.nextAt, 2.7, .045, 'triangle'));
+          if (this.beat % 8 === 0) chord.forEach((n, i) => this.note(pitch(n + (i === 1 ? minor : 0)), this.nextAt, 1.2, .065, 'triangle'));
+          if (this.beat % 4 === 0 || this.beat % 8 === 7) this.drum('kick',this.nextAt);
+          if (this.beat % 8 === 2 || this.beat % 8 === 6) this.drum('snare',this.nextAt);
+          this.drum('hat',this.nextAt);
+          if (this.beat % 2 === 0) this.note(pitch(chord[Math.floor(this.beat/2)%3]-12),this.nextAt,.18,.12,'triangle');
+          this.note(pitch(chord[this.beat%3]+12+minor),this.nextAt,.12,.04,'triangle');
           if (this.beat % 2 === 0) {
             const melody = [12, 16, 19, 14, 19, 16, 21, 19][Math.floor(this.beat / 2) % 8];
-            this.note(pitch(melody + minor), this.nextAt, .55, .025);
+            this.note(pitch(melody + minor), this.nextAt, .22, .065);
           }
-          this.nextAt += .375; this.beat = (this.beat + 1) % 128;
+          this.nextAt += .25; this.beat = (this.beat + 1) % 128;
         }
       } catch { this.stop(); }
     }

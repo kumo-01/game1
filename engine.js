@@ -1,5 +1,6 @@
 (function (root) {
   'use strict';
+  const Expansion = typeof module !== 'undefined' && module.exports ? require('./expansion') : root.Expansion;
   const clamp = (n, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, n));
   const DEPTS = ['営業', '開発', '人事', '経理', '広報', '法務'];
   const STRATEGIES = {
@@ -101,12 +102,15 @@
     const trait = special || pick(s, s.strategy === 'tech' ? ['堅実', '職人', '職人', '人気者', '野心家', '問題社員', '天才', '天才'] : s.strategy === 'ads' ? ['人気者', '人気者', '野心家', '問題社員', '堅実', '天才'] : ['堅実', '堅実', '職人', '人気者', '野心家', '問題社員', '天才']);
     return { id: ++s.nextEmployee, name, dept: dept || pick(s, DEPTS.slice(0, s.employees.length < 20 ? 2 : 6)), ability: trait === '天才' ? 96 : 35 + Math.floor(random(s) * 51), salary: trait === '天才' ? 15 : 7 + random(s) * 4, stress: 10 + random(s) * 15, loyalty: 55 + random(s) * 25, trait, joined: s.week };
   }
-  function create(name = 'ノヴァ株式会社', strategy = 'tech', seed = Date.now()) {
+  EVENTS.push(...Expansion.EVENTS);
+  function create(name = 'ノヴァ株式会社', strategy = 'tech', seed = Date.now(), options = {}) {
     const st = STRATEGIES[strategy] || STRATEGIES.tech;
     const s = { version: 1, name: name.trim().slice(0, 24) || 'ノヴァ株式会社', strategy: STRATEGIES[strategy] ? strategy : 'tech', rng: seed >>> 0, seed: seed >>> 0, week: 0, cash: 1000, debt: 0, price: st.price, brand: st.brand, tech: st.tech, ads: st.ads, benefits: 0, salary: 1, equipment: 260, server: 320, inventory: 40, morale: 72, satisfaction: 76, trust: 78, legal: 8, efficiency: 85, meetings: 5, slides: 8, nonsense: 2, charisma: 65, expectations: 45, economy: 1, overseas: 0, managers: 0, stage: 0, autonomy: 'balanced', employees: [], nextEmployee: 0, applicants: 6, pending: [], event: null, eventCooldown: 3, proposals: [], logs: [], timeline: [], history: [], culture: { tech: 0, sales: 0, care: 0, bureaucracy: 0, chaos: 0 }, stats: { peakRevenue: 0, peakEmployees: 6, scandals: 0, acquisitions: 0, departures: 0, ceos: ['あなた（創業CEO）'] }, actionsLeft: 3, fragile: 0, ended: null, lastRevenue: 0 };
     for (let i = 0; i < 6; i++) s.employees.push(employee(s, i < 3 ? '開発' : '営業', i === 0 ? '創業者' : undefined));
     s.rivals = ['ASTER LABS', '格安総研', 'ORBIT SYSTEMS', 'ミライ商会'].map((name, i) => ({ id: i, name, price: .8 + random(s), power: 160 + random(s) * 150, tech: 25 + random(s) * 35, staff: 12 + i * 7, cash: 700 + random(s) * 700, debt: 50 + random(s) * 200, share: 0, status: '競争中', style: ['技術', '価格', '拡大', 'ブランド'][i] }));
-    milestone(s, `${s.name} 創業。「${st.name}」で市場へ。`);
+    Expansion.init(s, options); s.cash = Expansion.DIFFICULTIES[s.difficulty].cash;
+    s.eventCooldown = Expansion.DIFFICULTIES[s.difficulty].cooldown + 1;
+    milestone(s, `${s.name} 創業。「${st.name}」で市場へ。難易度：${Expansion.DIFFICULTIES[s.difficulty].name} / ${s.equity.incorporated ? '株式会社' : '非株式会社'}`);
     calculate(s); return s;
   }
   function culture(s) {
@@ -118,16 +122,17 @@
     const avg = key => count ? s.employees.reduce((t, e) => t + e[key], 0) / count : 0;
     const stress = avg('stress');
     const complexity = Math.max(0, count - 12) * .75 + s.overseas * 15 + s.stats.acquisitions * 12;
-    const efficiency = clamp(s.efficiency - complexity / (1 + s.managers * .8) - s.meetings * .22 - s.nonsense * .25, 12, 98);
+    const efficiency = clamp(s.efficiency - complexity / (1 + s.managers * .8) - s.meetings * .22 - s.nonsense * .25 - s.slides / Math.max(1,count) * .12, 12, 98);
     const development = s.employees.filter(e => e.dept === '開発').length;
     const sales = s.employees.filter(e => e.dept === '営業').length;
-    const productivity = count * (20 + avg('ability') * .3) * (.45 + s.morale / 140) * (1 - stress / 160) * (.5 + efficiency / 160) * (1 + s.tech / 220) * (culture(s) === '技術至上主義' ? 1.08 : 1);
+    const productivity = count * (20 + avg('ability') * .3) * (.45 + s.morale / 140) * (1 - stress / 160) * (.5 + efficiency / 160) * (.85 + avg('loyalty') / 500) * (1 + s.tech / 220) * (culture(s) === '技術至上主義' ? 1.08 : 1);
     const production = Math.max(0, Math.min(s.equipment, productivity));
     const publicity = s.employees.filter(e => e.dept === '広報').length;
     const attraction = (90 + s.brand * 3 + sales * 15 + s.ads * 2.8 + publicity * 6) * (.45 + s.satisfaction / 120) * (.5 + s.trust / 140) * (1 + s.tech / 180) * (culture(s) === '体育会系' ? 1.1 : 1) / Math.pow(s.price, 1.2);
     const rivalPower = s.rivals.filter(r => r.status === '競争中').reduce((t, r) => t + r.power / Math.pow(r.price, .7), 0);
     const share = attraction / (attraction + rivalPower + 180) * 100;
-    const demand = attraction * .58 * s.economy * (1 + s.overseas * .45);
+    const competition = clamp(1.12 - rivalPower / 9000, .75, 1.1);
+    const demand = attraction * .58 * s.economy * competition * (.9 + s.charisma / 650) * (1 + s.overseas * .45);
     const sold = Math.min(production + s.inventory, demand);
     const load = demand / s.server * 100;
     const outage = clamp(Math.max(0, load - 75) * .45 + Math.max(0, 38 - s.tech) * .2, 0, 85);
@@ -135,12 +140,13 @@
     const revenue = sold * s.price * (1 - outage / 180) * (1 - returns / 100);
     const cogs = production * (.31 - s.tech * .0013);
     const payroll = s.employees.reduce((t, e) => t + e.salary, 0) * s.salary + s.managers * 16;
-    const overhead = 16 + s.equipment * .024 + s.server * .017 + count * .25 + s.managers * 5 + s.overseas * 28 + s.ads + s.benefits + s.debt * .008 + s.inventory * .008;
+    const overhead = 16 + s.equipment * .024 + s.server * .017 + count * .25 + s.managers * 5 + s.overseas * 28 + s.ads + s.benefits + s.debt * .008 + s.inventory * .008 + (s.equity?.listed ? 8 : 0);
     const profit = revenue - cogs - payroll - overhead;
     const turnover = clamp(Math.max(0, 55 - s.morale) * .12 + Math.max(0, stress - 40) * .08 + Math.max(0, 1 - s.salary) * 15 + Math.max(0, 50 - avg('loyalty')) * .08, 0, 22);
     s.metrics = { revenue, profit, margin: revenue ? (revenue - cogs) / revenue * 100 : 0, payroll, overhead, production, demand, sold, load, outage, returns, share, turnover, stress, efficiency, loyalty: avg('loyalty'), adEfficiency: revenue / Math.max(1, s.ads), control: clamp(100 - complexity * .6 - s.managers * 2, 18, 100), development };
     const total = attraction + rivalPower + 180;
     s.rivals.forEach(r => r.share = r.status === '競争中' ? r.power / Math.pow(r.price, .7) / total * 100 : 0);
+    if (s.equity) s.equity.price = Expansion.price(s);
     return s.metrics;
   }
   function effects(s, fx) {
@@ -176,6 +182,9 @@
   }
   function act(s, id, dept = '開発', automated = false) {
     const error = available(s, id); if (error) return { ok: false, reason: error };
+    const before = { ...s }, context = Expansion.context(s, id);
+    const variable = !['hire', 'fire', 'loan', 'repay', 'exit', 'overseas', 'manager', 'adsDown'].includes(id);
+    const strength = variable ? Math.max(.4, Math.min(1.9, context.factor * (.75 + random(s) * .5))) : 1;
     const a = ACTIONS[id]; s.cash -= a.cost; s.actionsLeft--;
     switch (id) {
       case 'hire': for (let i = 0; i < 3; i++) s.employees.push(employee(s, DEPTS.includes(dept) ? dept : '開発')); s.applicants -= 3; break;
@@ -185,7 +194,7 @@
       case 'ads': s.ads += 12; s.brand += 4; s.culture.sales += 2; break;
       case 'adsDown': s.ads = Math.max(0, s.ads - 12); break;
       case 'equipment': s.equipment += 180; break;
-      case 'research': s.pending.push({ due: s.week + 4, text: '研究開発が完了。製品の技術が進歩。', effects: { tech: 10 } }); s.culture.tech += 2; break;
+      case 'research': s.pending.push({ due: s.week + 4, text: `研究開発が完了。技術＋${(10 * strength).toFixed(1)}。`, effects: { tech: 10 * strength } }); s.culture.tech += 2; break;
       case 'benefits': s.benefits += 6; effects(s, { morale: 8, loyalty: 4 }); s.culture.care += 2; break;
       case 'salaryUp': effects(s, { salaryFactor: 1.1, morale: 6, loyalty: 5 }); s.culture.care++; break;
       case 'salaryDown': effects(s, { salaryFactor: .9, morale: -9, loyalty: -8, stress: 5 }); s.culture.sales += 2; break;
@@ -197,8 +206,13 @@
       case 'repay': s.debt -= 300; break;
       case 'exit': end(s, 'CEO退任：巨大組織は次の経営者へ', true); break;
     }
-    normalize(s); calculate(s); log(s, `${automated ? '【委任決裁】' : '【CEO決裁】'}${a.name}${id === 'hire' ? ` / ${dept}に3名` : ''}`, automated ? 'auto' : 'info');
-    checkStage(s); return { ok: true };
+    if (variable) {
+      // Contracts and recurring budgets stay exact; only implementation outcomes vary.
+      for (const key of ['brand', 'equipment', 'server', 'morale', 'trust', 'legal', 'tech', 'price']) s[key] = before[key] + (s[key] - before[key]) * strength;
+    }
+    s.lastAction = { id, strength, reason: variable ? context.reason : '契約・人数は固定', week: s.week };
+    normalize(s); calculate(s); log(s, `${automated ? '【委任決裁】' : '【CEO決裁】'}${a.name}${id === 'hire' ? ` / ${dept}に3名` : ''}${variable ? ` / 実効${Math.round(strength * 100)}%（${context.reason}）` : ''}`, automated ? 'auto' : 'info');
+    checkStage(s); return { ok: true, strength, reason: s.lastAction.reason };
   }
   function checkStage(s) {
     const n = s.employees.length;
@@ -214,11 +228,15 @@
     if (!s.event || s.ended) return { ok: false, reason: '判断対象がありません' };
     const ev = EVENTS.find(e => e.id === s.event.id); const choice = ev.choices[index];
     if (!choice) return { ok: false, reason: '不明な選択肢' };
-    effects(s, choice.effects);
+    const strength = clamp((.75 + random(s) * .5) * (.8+s.metrics.efficiency/400), .5, 1.5);
+    const outcome = { ...choice.effects };
+    for (const key of ['tech','brand','morale','trust','efficiency']) if (outcome[key] !== undefined) outcome[key] *= strength;
+    effects(s, outcome);
+    log(s, `判断の実効${Math.round(strength*100)}%（管理効率・実施のばらつき / 契約・費用は固定）`);
     if (choice.delayed) s.pending.push({ ...choice.delayed, due: s.week + choice.delayed.weeks });
     if (['defect', 'whistle', 'scandal'].includes(ev.id)) s.stats.scandals++;
     if (index === 0) s.culture.care++; else s.culture.chaos++;
-    milestone(s, `${ev.title} → ${choice.label}`); s.event = null; s.eventCooldown = 3 + Math.floor(random(s) * 4);
+    milestone(s, `${ev.title} → ${choice.label}`); s.event = null; s.eventCooldown = Expansion.DIFFICULTIES[s.difficulty || 'normal'].cooldown + Math.floor(random(s) * 3);
     calculate(s); checkEnd(s); return { ok: true };
   }
   function acquire(s, id) {
@@ -232,7 +250,7 @@
     for (let i = 0; i < Math.min(r.staff, 1500 - s.employees.length); i++) s.employees.push(employee(s));
     s.morale -= 12; s.meetings += 8; s.legal += 8; s.culture.chaos += 5; s.stats.acquisitions++;
     s.pending.push({ due: s.week + 6, text: `${r.name} の統合摩擦で離職と追加費用が発生。`, effects: { cash: -r.staff * 4, morale: -6, loseAce: 1 } });
-    r.status = '買収済'; milestone(s, `${r.name} を${Math.round(cost)}万円で買収。負債${Math.round(r.debt)}万円を継承。`);
+    r.status = '買収済'; r.inactiveAt = s.week; settleShares(s, r, .8); milestone(s, `${r.name} を${Math.round(cost)}万円で買収。負債${Math.round(r.debt)}万円を継承。`);
     normalize(s); calculate(s); checkStage(s); return { ok: true };
   }
   function valuation(r) { return Math.round(180 + r.power * 1.1 + r.staff * 8 + Math.max(0, r.cash) * .12); }
@@ -252,7 +270,7 @@
     if (s.week % (forced ? 2 : 4) !== 0) return;
     let id;
     const m = s.metrics;
-    if (forced && random(s) < .22) { id = 'ads'; s.culture.chaos++; log(s, '営業役員がCEO方針を上書き。株主への成長公約を優先。', 'warning'); }
+    if (forced && random(s) < .22) { id = 'ads'; s.culture.chaos++; log(s, `営業役員がCEO方針を上書き。${s.equity.incorporated ? '株主への成長公約' : '営業部の売上目標'}を優先。`, 'warning'); }
     else if (s.autonomy === 'growth') id = s.week % 8 === 0 ? 'hire' : 'ads';
     else if (s.autonomy === 'profit') id = m.profit < 0 ? 'salaryDown' : 'priceUp';
     else if (m.load > 85) id = 'server';
@@ -266,6 +284,8 @@
   function step(s) {
     if (s.ended || s.event) return false;
     s.week++;
+    s.equity.lastPrice = s.equity.price;
+    const difficulty = Expansion.DIFFICULTIES[s.difficulty || 'normal'];
     const m = calculate(s);
     s.cash += m.profit;
     s.inventory = clamp(s.inventory + m.production - m.sold, 0, s.equipment * 4);
@@ -284,7 +304,7 @@
     s.trust += (s.satisfaction - 65) * .015 - Math.max(0, s.legal - 55) * .025;
     const legalStaff = s.employees.filter(e => e.dept === '法務').length;
     const hrStaff = s.employees.filter(e => e.dept === '人事').length;
-    s.legal += s.employees.length * .007 + s.overseas * .2 + m.returns * .04 - legalStaff * .25 - .18;
+    s.legal += (s.employees.length * .007 + s.overseas * .2 + m.returns * .04) * difficulty.pressure - legalStaff * .25 - .18;
     if (currentCulture === '官僚的') { s.legal -= .35; s.meetings += .15; }
     if (currentCulture === 'カオス') s.legal += .25;
     s.efficiency += (s.employees.filter(e => e.dept === '経理').length * .12 + s.managers * .13 - .18);
@@ -302,18 +322,28 @@
       r.cash += r.share * 2 - r.staff * 1.4 + (random(s) - .5) * 35;
       if (s.week % 8 === 0) { r.price = clamp(r.price * (r.style === '価格' ? .97 : 1 + (random(s) - .5) * .1), .45, 2.7); r.staff += Math.floor(random(s) * 4); r.tech = clamp(r.tech + random(s) * 2); }
       if (s.week % 17 === 0 && random(s) < .3) { r.power *= 1.22; log(s, `${r.name} が新製品を投入。市場で急成長。`, 'market'); }
-      if (r.cash < -250) { r.status = '倒産'; milestone(s, `競合 ${r.name} が資金難で倒産。`); }
+      r.stockPrice = Math.max(.05, (r.power + Math.max(0,r.cash) * .2 + r.tech * 2) / 100 * s.economy);
+      if (r.cash < -250) { r.status = '倒産'; r.stockPrice = 0; r.inactiveAt = s.week; settleShares(s, r, 0); milestone(s, `競合 ${r.name} が資金難で倒産。保有株式は無価値に。`); }
     }
     if (s.week % 26 === 0) {
       const rivals = s.rivals.filter(r => r.status === '競争中');
-      if (rivals.length >= 2 && random(s) < .3) { const buyer = rivals[0], target = rivals[rivals.length - 1]; buyer.power += target.power * .6; buyer.debt += target.debt; target.status = '他社が買収'; milestone(s, `${buyer.name} が ${target.name} を買収。市場再編。`); }
+      if (rivals.length >= 2 && random(s) < .3) { const buyer = rivals[0], target = rivals[rivals.length - 1]; buyer.power += target.power * .6; buyer.debt += target.debt; target.status = '他社が買収'; target.inactiveAt = s.week; settleShares(s, target, 1); milestone(s, `${buyer.name} が ${target.name} を買収。市場再編。`); }
     }
+    s.rivals = s.rivals.map(r => {
+      if (r.status === '競争中') return r;
+      r.inactiveAt ??= s.week;
+      if (s.week - r.inactiveAt < 8) return r;
+      const id = s.nextRival++, industry = pick(s, ['AI物流', 'グリーン製造', '健康テック', '宇宙通信', '教育サービス', 'ロボット']);
+      const entrant = { id, name: `${pick(s, ['ネクスト', '青空', 'LUMEN', 'PICO', '新星'])} ${industry} #${id}`, industry, price: .7+random(s), power: 180+random(s)*220, tech: 35+random(s)*40, staff: 10+Math.floor(random(s)*18), cash: 1000+random(s)*800, debt: random(s)*150, share: 0, status: '競争中', style: pick(s,['技術','価格','拡大','ブランド']), stockPrice: 3 };
+      entrant.stockPrice = Math.max(.05,(entrant.power+entrant.cash*.2+entrant.tech*2)/100*s.economy);
+      milestone(s, `${r.name} の退出から8週。新産業「${industry}」の ${entrant.name} が参入。`); return entrant;
+    });
     const due = s.pending.filter(p => p.due <= s.week); s.pending = s.pending.filter(p => p.due > s.week);
     for (const p of due) { effects(s, p.effects); milestone(s, p.text); if (p.scandal) s.stats.scandals++; }
     s.meetings += s.managers * .03; s.slides = Math.round(s.meetings * (1 + s.nonsense * .1));
-    s.expectations += s.stage >= 4 ? (m.revenue > s.lastRevenue ? .5 : 1.1) : -.04;
+    s.expectations += s.equity.incorporated && (s.stage >= 4 || s.equity.listed) ? (m.revenue > s.lastRevenue ? .5 : 1.1) : -.04;
     s.charisma = clamp(s.charisma + (m.profit > 0 ? .15 : -.3) + (s.morale - 60) * .008);
-    if (s.stage >= 4 && s.expectations > 85 && m.profit < 0) { s.cash -= 80; s.trust -= 1; log(s, '株主の要求により事業再編費用80万円。', 'warning'); }
+    if (s.equity.incorporated && (s.stage >= 4 || s.equity.listed) && s.expectations > 85 && m.profit < 0) { s.cash -= 80; s.trust -= 1; log(s, '株主の要求により事業再編費用80万円。', 'warning'); }
     normalize(s); checkStage(s);
     s.actionsLeft = s.stage >= 3 ? 2 : 3;
     calculate(s); autonomous(s); executives(s);
@@ -324,10 +354,12 @@
     if (s.week % 4 === 0) log(s, `週次決算：売上${Math.round(m.revenue)}万 / 利益${Math.round(m.profit)}万 / 在庫${Math.round(s.inventory)}`, m.profit < 0 ? 'warning' : 'finance');
     checkEnd(s); if (s.ended) return true;
     s.eventCooldown--;
-    if (s.eventCooldown <= 0 && random(s) < (currentCulture === 'カオス' ? .65 : .48)) {
-      let pool = EVENTS.filter(e => !['shareholder', 'faction'].includes(e.id) || s.stage >= 2);
+    if (s.eventCooldown <= 0 && random(s) < Math.min(.99, difficulty.chance * (currentCulture === 'カオス' ? 1.3 : 1))) {
+      let pool = EVENTS.filter(e => (e.id !== 'shareholder' || s.equity.incorporated) && (!['shareholder', 'faction'].includes(e.id) || s.stage >= 2));
       const themed = { budget: ['pricewar', 'union', 'burnout'], premium: ['defect', 'patent', 'ace'], tech: ['talent', 'patent', 'ransom'], ads: ['scandal', 'trend', 'viral'] }[s.strategy];
       pool = pool.concat(EVENTS.filter(e => themed.includes(e.id)));
+      const risks = s.metrics.load > 85 ? ['cloud','access','leak'] : s.metrics.stress > 45 ? ['health','poach','labor'] : s.inventory > s.equipment ? ['warehouse','supply'] : s.legal > 40 ? ['tax','license','quality'] : ['ai','review','demo'];
+      pool = pool.concat(EVENTS.filter(e=>risks.includes(e.id)));
       let id = pick(s, pool).id;
       if (s.metrics.load > 130 && random(s) < .65) id = 'outage';
       else if (s.legal > 70 && random(s) < .65) id = 'audit';
@@ -350,8 +382,31 @@
     if (!s || s.version !== 1 || typeof s.name !== 'string' || !STRATEGIES[s.strategy] || ['employees', 'rivals', 'pending', 'history', 'logs', 'timeline', 'proposals'].some(k => !Array.isArray(s[k])) || !s.stats || !s.culture || !Number.isFinite(s.rng) || !Array.isArray(s.stats.ceos)) throw new Error('対応していないセーブデータ');
     const numeric = ['week', 'cash', 'debt', 'price', 'brand', 'tech', 'ads', 'benefits', 'salary', 'equipment', 'server', 'inventory', 'morale', 'satisfaction', 'trust', 'legal', 'efficiency', 'meetings', 'expectations', 'actionsLeft'];
     if (numeric.some(k => !Number.isFinite(s[k])) || s.employees.some(e => !DEPTS.includes(e.dept) || !Number.isFinite(e.ability) || !Number.isFinite(e.salary) || !Number.isFinite(e.stress) || !Number.isFinite(e.loyalty)) || (s.event && !EVENTS.some(e => e.id === s.event.id))) throw new Error('壊れたセーブデータ');
+    Expansion.init(s);
+    const e = s.equity;
+    if (typeof e.incorporated !== 'boolean' || typeof e.listed !== 'boolean' || !e.holdings || typeof e.holdings !== 'object' || Array.isArray(e.holdings) || ['ownership','issued','price','lastPrice'].some(k=>!Number.isFinite(e[k])) || Object.values(e.holdings).some(v=>!Number.isInteger(v) || v < 0) || !Number.isInteger(s.nextRival)) throw new Error('壊れた株式データ');
     calculate(s); return s;
   }
-  const api = { create, step, act, acquire, decide, trigger, calculate, available, culture, valuation, serialize, restore, ACTIONS, EVENTS, STRATEGIES, DEPTS };
+  function settleShares(s, r, rate) {
+    const quantity = s.equity.holdings[r.id] || 0;
+    if (quantity) { const payout = quantity * r.stockPrice * rate; s.cash += payout; delete s.equity.holdings[r.id]; log(s, `${r.name} 保有株${quantity}株を清算：${Math.round(payout)}万円`, 'finance'); }
+  }
+  function trade(s, id, quantity, sell = false) {
+    const r = s.rivals.find(r=>r.id === id);
+    if (s.ended || s.event || !r || r.status !== '競争中' || !Number.isInteger(quantity) || quantity < 1 || quantity > 1000 || s.actionsLeft < 1) return {ok:false,reason:'取引できません（競争中・決裁枠1・1〜1000株）'};
+    const held = s.equity.holdings[id] || 0, amount = quantity * r.stockPrice;
+    if (sell ? held < quantity : s.cash < amount * 1.01) return {ok:false,reason:sell ? '保有株が足りません' : '資金が足りません'};
+    s.cash += sell ? amount * .99 : -amount * 1.01; s.equity.holdings[id] = held + (sell ? -quantity : quantity); s.actionsLeft--;
+    log(s, `${r.name} ${quantity}株を${sell ? '売却' : '購入'}（手数料1%）`, 'finance'); calculate(s); return {ok:true};
+  }
+  function corporate(s, action) {
+    if (s.ended || s.event || s.actionsLeft < 1) return {ok:false,reason:'未解決判断なし・決裁枠1が必要です'};
+    const e = s.equity;
+    if (action === 'incorporate' && !e.incorporated && s.cash >= 80) { s.cash -= 80; e.incorporated = true; s.trust += 3; milestone(s,'株式会社へ移行。株式による資金調達が可能に。'); }
+    else if (action === 'list' && e.incorporated && !e.listed && s.employees.length >= 20 && s.trust >= 60 && s.cash >= 200) { s.cash -= 200; s.cash += 600; e.listed = true; e.ownership = 75; e.issued += 3333; s.expectations += 15; milestone(s,'株式公開：差引400万円を調達。CEO持分75%、開示費用8万円/週。'); }
+    else return {ok:false,reason:'株式会社化は80万円。上場は株式会社・20名・信用60・準備資金200万円が必要です'};
+    s.actionsLeft--; normalize(s); calculate(s); return {ok:true};
+  }
+  const api = { create, step, act, acquire, decide, trigger, calculate, available, culture, valuation, serialize, restore, trade, corporate, actionContext: Expansion.context, DIFFICULTIES: Expansion.DIFFICULTIES, ACTIONS, EVENTS, STRATEGIES, DEPTS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Sim = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

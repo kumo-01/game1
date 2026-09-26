@@ -49,19 +49,23 @@ test('the map reflects actual headcount, empty departments, infrastructure and m
 });
 function audioFixture() {
   const timers = new Map(), nodes = []; let timerId = 0;
-  const ctx = { state: 'running', currentTime: 0, destination: {}, resume() { this.state = 'running'; return Promise.resolve(); }, suspend() { this.state = 'suspended'; return Promise.resolve(); }, createGain() { return { gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }, createOscillator() { const node = { frequency: {}, connect() {}, disconnect() { this.disconnected = true; }, start(at) { this.startAt = at; }, stop(at) { this.stopAt = at; this.stopped = true; } }; nodes.push(node); return node; } };
+  const ctx = { state: 'running', currentTime: 0, destination: {}, resume() { this.state = 'running'; return Promise.resolve(); }, suspend() { this.state = 'suspended'; return Promise.resolve(); }, createGain() { return { gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }, createOscillator() { const node = { frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() { this.disconnected = true; }, start(at) { this.startAt = at; }, stop(at) { this.stopAt = at; this.stopped = true; } }; nodes.push(node); return node; } };
   const music = new Life.Music(true, .12, () => ctx, { setTimer: fn => { const id = ++timerId; timers.set(id, fn); return id; }, clearTimer: id => timers.delete(id) });
+  ctx.sampleRate = 8000;
+  ctx.createBuffer = (channels, frames) => ({ getChannelData: () => new Float32Array(frames) });
+  ctx.createBufferSource = () => { const n = { connect() {}, disconnect() { this.disconnected=true; }, start(at) {this.startAt=at;},stop(at){this.stopAt=at;this.stopped=true;} };nodes.push(n);return n; };
   return { music, timers, nodes, ctx };
 }
 test('BGM starts once, loops with a bounded horizon, and cleans up on mute', async () => {
   const f = audioFixture(); f.music.start(); f.music.start(); await Promise.resolve();
-  assert.equal(f.timers.size, 1); assert.equal(f.nodes.length, 4);
+  assert.equal(f.timers.size, 1); assert.ok(f.nodes.length >= 7, 'chords, bass, melody and percussion');
   assert.ok(f.nodes.every(n => n.stopAt > n.startAt && n.stopAt - n.startAt < 3));
+  assert.ok(f.nodes.some(n=>n.buffer), 'noise percussion is scheduled with the melody');
   for (let i = 1; i < 35; i++) {
     f.ctx.currentTime = i * .375;
     f.music.schedule();
     for (const node of f.nodes.filter(n => n.stopAt <= f.ctx.currentTime && !n.disconnected)) node.onended();
-    assert.ok(f.music.nodes.size <= 12);
+    assert.ok(f.music.nodes.size <= 30, 'short notes must not accumulate across the loop');
   }
   f.music.setVolume(.2); assert.equal(f.music.master.gain.value, .2);
   f.music.setEnabled(false); assert.equal(f.timers.size, 0); assert.equal(f.music.nodes.size, 0);

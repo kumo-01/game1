@@ -88,17 +88,17 @@ test('balanced active management can grow, and 100 seeded runs stay finite throu
   }
   assert.equal(completed, 100); assert.ok(peak >= 20, `growth should unlock management, peak ${peak}`);
 });
-test('an unmodified founding economy can reach autonomous scale and finish a full tenure', () => {
+test('cautious active management can reach autonomous scale and finish a full tenure', () => {
   const s = Sim.create('長期経営', 'tech', 1);
   while (!s.ended) {
     if (s.event) Sim.decide(s, 0);
     if (s.ended) break;
     const m = s.metrics;
-    if (s.cash > 1200 && s.employees.length >= 20) {
-      const rival = s.rivals.find(r => r.status === '競争中' && s.cash > Sim.valuation(r) + 500);
+    if (s.cash > 4000 && s.employees.length >= 20 && s.stats.acquisitions < 3 && s.metrics.efficiency > 45) {
+      const rival = s.rivals.find(r => r.status === '競争中' && s.cash > Sim.valuation(r) + 3000);
       if (rival) Sim.acquire(s, rival.id);
     }
-    const id = m.load > 85 ? 'server' : s.morale < 60 ? 'benefits' : s.legal > 50 ? 'compliance' : s.employees.length >= 45 && s.overseas < 3 ? 'overseas' : s.managers < s.employees.length / 25 && s.employees.length >= 20 ? 'manager' : m.demand > m.production * 1.02 ? (s.equipment <= m.production * 1.05 ? 'equipment' : 'hire') : s.tech < 75 ? 'research' : 'ads';
+    const id = m.load > 85 ? 'server' : s.morale < 60 ? 'benefits' : s.legal > 45 ? 'compliance' : m.efficiency < 55 && s.employees.length >= 20 ? 'manager' : m.profit < 100 && s.price < 3 ? 'priceUp' : s.cash > 10000 && s.employees.length < 120 ? 'hire' : s.employees.length >= 45 && s.overseas < 3 ? 'overseas' : m.demand > m.production * 1.02 && s.employees.length < 135 ? (s.equipment <= m.production * 1.05 ? 'equipment' : 'hire') : s.tech < 80 ? 'research' : 'ads';
     Sim.act(s, id, s.employees.length % 4 === 0 ? '営業' : '開発');
     Sim.step(s);
   }
