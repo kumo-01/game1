@@ -4,17 +4,19 @@ const esc = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmt = (n, digits = 0) => Number(n).toLocaleString('ja-JP', { maximumFractionDigits: digits, minimumFractionDigits: digits });
 const money = n => `${fmt(n)}万`;
 const KEY = 'corporate-entropy-save-v1';
-const titles = { overview: '経営概況', people: '人材・組織', market: '市場・M&A', board: '取締役会', history: '会社年表' };
+const titles = { overview: '経営概況', people: '人材・組織', market: '市場・M&A', board: '取締役会', social: 'みんなの声', map: '会社の様子', history: '会社年表' };
 const stages = ['STARTUP', 'DEPARTMENTS', 'MANAGEMENT', 'CORPORATION', 'AUTONOMOUS'];
 let state = null, tab = 'overview', selected = 'tech', deptFilter = '全員', sortPeople = 'ability', hireDept = '開発', modalType = '', toastTimer, preview = true;
 const PREFS_KEY = 'corporate-entropy-preferences-v1';
-let preferences = { mode: 'beginner', sound: true, volume: .25 };
+let preferences = { mode: 'beginner', sound: true, volume: .25, music: true, musicVolume: .12 };
 try {
   const p = JSON.parse(localStorage.getItem(PREFS_KEY));
-  if (p) preferences = { mode: p.mode === 'advanced' ? 'advanced' : 'beginner', sound: p.sound !== false, volume: Number.isFinite(p.volume) ? Math.max(0, Math.min(1, p.volume)) : .25 };
+  if (p) preferences = { mode: p.mode === 'advanced' ? 'advanced' : 'beginner', sound: p.sound !== false, volume: Number.isFinite(p.volume) ? Math.max(0, Math.min(1, p.volume)) : .25, music: p.music !== false, musicVolume: Number.isFinite(p.musicVolume) ? Math.max(0, Math.min(1, p.musicVolume)) : .12 };
 } catch { /* Preferences are optional, including with older saves. */ }
 const sound = new UI.Sound(preferences.sound, preferences.volume);
-const playback = new UI.Playback({ tick: advance, canRun: () => !!state && !preview && !state.ended && !state.event && !modalType && !document.hidden, speed: () => Number($('speed').value), changed: running => { $('pause').textContent = running ? 'Ⅱ 停止' : '▶ 再生'; } });
+const music = new Life.Music(preferences.music, preferences.musicVolume);
+let socialChannel = 'staff', selectedRoom = 'dept-0';
+const playback = new UI.Playback({ tick: advance, canRun: () => !!state && !preview && !state.ended && !state.event && !modalType && !document.hidden, speed: () => Number($('speed').value), changed: running => { $('pause').textContent = running ? 'Ⅱ 停止' : '▶ 再生'; document.body.classList.toggle('sim-running', running); } });
 const beginner = () => preferences.mode === 'beginner';
 function savePreferences() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(preferences)); } catch { /* Play still works without storage. */ } }
 function updatePreferences() {
@@ -22,6 +24,9 @@ function updatePreferences() {
   $('sound-toggle').textContent = preferences.sound ? '♪ 音 ON' : '♪ 音 OFF';
   $('sound-toggle').setAttribute('aria-pressed', String(preferences.sound));
   $('volume').value = Math.round(preferences.volume * 100);
+  $('music-toggle').textContent = preferences.music ? 'BGM ON' : 'BGM OFF';
+  $('music-toggle').setAttribute('aria-pressed', String(preferences.music));
+  $('music-volume').value = Math.round(preferences.musicVolume * 100);
   document.body.classList.toggle('beginner', beginner());
 }
 function modeChooser() { return `<div class="mode-chooser" role="group" aria-label="説明モード"><button data-mode="beginner" aria-pressed="${beginner()}" class="${beginner() ? 'selected' : ''}"><b>初心者モード</b><small>用語・数字の意味と、今考えることを説明</small></button><button data-mode="advanced" aria-pressed="${!beginner()}" class="${!beginner() ? 'selected' : ''}"><b>ガチ勢モード</b><small>これまでの高密度ダッシュボード</small></button></div>`; }
@@ -145,9 +150,22 @@ function news() {
   return panel('マーケットワイヤー', `<div class="news-item"><small>ECONOMY / NOW</small>${state.economy > 1.08 ? '景気は拡大。受注機会と人材争奪が増加。' : state.economy < .9 ? '消費が減速。価格と固定費への圧力。' : '市場は平常運転。競合は次の一手を探る。'}</div>${market.map(l => `<div class="news-item"><small>MARKET / W${l.week}</small>${esc(l.text)}</div>`).join('')}<div class="news-item"><small>ORGANIZATION / CULTURE</small>${Sim.culture(state)} · ${stages[state.stage]}<br><span class="hint">12名：部署 / 20名：役員 / 60名：政治 / 120名：株主・自律化</span></div>`, '<span class="live-dot"></span>');
 }
 function pendingPanel() { return panel('進行中の案件', state.pending.length ? state.pending.map(p => `<div class="news-item"><small>DUE W${p.due} · あと${p.due - state.week}週</small>${esc(p.text)}</div>`).join('') : '<div class="note">未決案件はありません。研究開発や経営判断の遅延効果がここに表示されます。</div>', `<small>${state.pending.length} PENDING</small>`); }
-function overview() { return `<div class="layout"><div class="stack">${beginner() ? `${chartPanel()}${actions()}<details class="guide-details"><summary>30指標の意味と現在値を詳しく見る</summary>${allMetrics()}</details>` : `${chartPanel()}${allMetrics()}${actions()}`}</div><aside class="stack">${health()}${news()}${logs()}${pendingPanel()}</aside></div>`; }
+function overview() { return `<div class="layout"><div class="stack">${beginner() ? `${chartPanel()}${actions()}<details class="guide-details"><summary>30指標の意味と現在値を詳しく見る</summary>${allMetrics()}</details>` : `${chartPanel()}${allMetrics()}${actions()}`}</div><aside class="stack">${health()}${voicePreview()}${news()}${logs()}${pendingPanel()}</aside></div>`; }
+function voicePreview() {
+  const post = state.life.staff[0];
+  return panel('現場のひとこと', `<div class="note"><strong>${esc(post.author)}</strong><br>${esc(post.text)}<br><button class="voice-link" data-tab="social">社員とネットの声を読む →</button></div>`, '<small>READ ONLY</small>');
+}
+function social() {
+  const posts = state.life[socialChannel], staff = socialChannel === 'staff';
+  return `<div class="layout social-layout"><div class="stack">${panel('会社の周りで、何が話されている？', `<div class="social-tabs" role="group" aria-label="SNSの閲覧先"><button data-channel="staff" aria-pressed="${staff}" class="${staff ? 'selected' : ''}">♙ 社員専用 <span>${state.life.staff.length}</span></button><button data-channel="internet" aria-pressed="${!staff}" class="${!staff ? 'selected' : ''}">◎ インターネット <span>${state.life.internet.length}</span></button></div><div class="social-banner"><b>${staff ? 'INSIDE / 社員だけのタイムライン' : 'OUTSIDE / 顧客・観察者のタイムライン'}</b><span>${staff ? '給与、現場の負担、会議、休息への本音' : '製品、価格、障害、信用への感想'}</span></div><div class="social-feed">${posts.map(p => `<article class="post"><div class="post-avatar ${staff ? 'internal' : 'public'}">${esc(p.author.slice(0, 1))}</div><div class="post-content"><div class="post-head"><b>${esc(p.author)}</b><time>W${p.week}</time></div><small>${esc(p.role)}</small><p>${esc(p.text)}</p><div class="post-reactions"><span>♡ ${fmt(p.likes)} 共感</span><span>閲覧のみ</span></div></div></article>`).join('')}</div>`, '<span class="tag">ゲーム内SNS</span>')}</div><aside class="stack">${panel('数字の向こうに、人がいる', '<div class="note">投稿はゲーム内の架空の声です。社員の給与・ストレス・士気、顧客満足・障害・返品などに連動して毎週増えます。<br><br>投稿・返信・いいねの操作はありません。共感数もゲーム内の演出で、外部SNSへの接続はありません。<br><br>各タイムラインは最新120件を保持し、会社のセーブに含まれます。</div>')}${health()}${panel('会社の空気を見に行く', '<div class="note">言葉に出ている不満は、会社のマップにも表れます。<br><button data-tab="map" class="voice-link">会社の様子を見る →</button></div>')}</aside></div>`;
+}
+function companyMap() {
+  const rooms = Life.rooms(state), selected = rooms.find(r => r.id === selectedRoom) || rooms[0];
+  const furniture = r => r.kind === 'office' ? `<div class="office-desks">${r.people.slice(0, 12).map(e => `<span class="desk" title="${esc(e.name)} / ストレス ${fmt(e.stress)}"><i class="person ${e.stress > 65 ? 'tired' : ''}"></i><i class="monitor"></i></span>`).join('')}</div>${r.people.length > 12 ? `<span class="room-overflow">ほか ${r.people.length - 12}名</span>` : ''}` : r.kind === 'server' ? `<div class="rack-row">${Array.from({ length: Math.min(8, Math.ceil(state.server / 220)) }, () => '<i class="server-rack"><span></span><span></span><span></span></i>').join('')}</div>` : r.kind === 'factory' ? `<div class="factory-floor"><i class="conveyor"></i><div class="crate-row">${Array.from({ length: Math.min(10, Math.ceil(state.inventory / 80)) }, () => '<i class="crate"></i>').join('')}</div></div>` : r.kind === 'meeting' ? '<div class="meeting-table"><i></i><i></i><i></i><i></i></div>' : '<div class="lounge-furniture"><i class="sofa"></i><i class="coffee-table">☕</i><i class="plant">✦</i></div>';
+  return `<div class="layout map-layout"><div class="stack">${panel('LIVE OFFICE / 会社の様子', `<div class="map-meta"><span>${stages[state.stage]} · ${state.employees.length}名 · ${state.overseas}海外市場</span><div class="map-legend"><span class="healthy">● 平常</span><span class="warning">● 注意</span><span class="danger">● 深刻</span></div></div><div class="office-map stage-${state.stage}"><div class="office-entry"><b>${esc(state.name)}</b><span>RECEPTION / ${Sim.culture(state)}</span></div><div class="office-grid">${rooms.map((r, i) => `${i === 6 ? '<div class="office-corridor"><span>OPERATIONS CORRIDOR</span><i></i><small>人・商品・情報が行き交う</small></div>' : ''}<button class="office-room ${r.severity} ${r.kind} ${r.count === 0 && r.kind === 'office' ? 'empty-room' : ''} ${selected.id === r.id ? 'selected' : ''}" data-room="${r.id}" aria-pressed="${selected.id === r.id}"><div class="room-heading"><b>${r.icon} ${r.name}</b><span>${r.kind === 'office' ? `${r.count}名` : r.status}</span></div>${furniture(r)}<div class="room-state"><i></i>${r.status}</div></button>`).join('')}</div><div class="map-foot">実際の配属・設備・在庫から表示 · 人数が多い部署は最大12席で省略</div></div>`, '<span class="tag">W' + state.week + ' / LIVE STATE</span>')}</div><aside class="stack">${panel(selected.name, `<div class="panel-body"><div class="room-detail-status ${selected.severity}">● ${selected.status}</div><p class="hint">${selected.detail}</p><div class="room-facts">${selected.facts.map(f => `<div>${esc(f)}</div>`).join('')}</div>${selected.people ? `<h3 class="room-people-label">ここで働く人</h3>${selected.people.length ? selected.people.slice(0, 8).map(e => `<div class="room-person"><b>${esc(e.name)}</b><span>${e.trait} · ストレス ${fmt(e.stress)}</span></div>`).join('') : '<p class="hint">まだ配属されていません。採用先でこの部署を選ぶと社員が増えます。</p>'}` : ''}</div>`, '<small>エリアを選んで詳細を見る</small>')}${panel('マップの読み方', '<div class="note">色は経営状態に連動します。赤い開発エリアは過労、赤いサーバールームは障害、赤い倉庫は供給不足です。<br><br>椅子や設備の絵は模式図です。社員の移動・会話は演出で、経営の数値には影響しません。<br><button data-tab="social" class="voice-link">みんなの声を読む →</button></div>')}${health()}</aside></div>`;
+}
 function coaching() {
-  const context = { overview: '1万円＝10,000円。「1週進める」で会社の収入と支出が計算されます。決裁枠は今週選べる操作の回数です。', people: '部署は社員の役割です。営業は注文、開発は技術、人事は応募、経理は管理、広報は認知、法務は法律上の安全に貢献します。人数だけ増やすと給与も増えます。', market: '競合は同じお客さんを取り合う会社です。買収は他社を丸ごと引き取ること。社員や技術だけでなく、借金と組織の問題も引き継ぎます。', board: '役員は担当分野の責任者です。全員の提案を採用すると、目的がぶつかります。委任はあなたの代わりにお金と決裁枠を使って判断する設定です。', history: '年表はこれまでの判断と、その後に起きた出来事の記録です。失敗したときは、最後の数字だけでなく問題が始まった判断を振り返ってみましょう。' };
+  const context = { social: '社員専用は働く人の本音、インターネットは顧客や観察者の感想です。どちらも閲覧専用で、投稿に反応する操作はありません。会社の状態を知る手がかりとして読みましょう。', map: '会社の中を見渡す模式図です。エリアを選ぶと実際の社員や指標を確認できます。緑は平常、黄は注意、赤は深刻な状態。色を手がかりに経営判断につなげましょう。', overview: '1万円＝10,000円。「1週進める」で会社の収入と支出が計算されます。決裁枠は今週選べる操作の回数です。', people: '部署は社員の役割です。営業は注文、開発は技術、人事は応募、経理は管理、広報は認知、法務は法律上の安全に貢献します。人数だけ増やすと給与も増えます。', market: '競合は同じお客さんを取り合う会社です。買収は他社を丸ごと引き取ること。社員や技術だけでなく、借金と組織の問題も引き継ぎます。', board: '役員は担当分野の責任者です。全員の提案を採用すると、目的がぶつかります。委任はあなたの代わりにお金と決裁枠を使って判断する設定です。', history: '年表はこれまでの判断と、その後に起きた出来事の記録です。失敗したときは、最後の数字だけでなく問題が始まった判断を振り返ってみましょう。' };
   return `<section class="coach"><div class="coach-heading"><b>はじめての経営 / ${titles[tab]}</b><span>説明だけを追加 · 数値・難易度は同じ</span></div><p>${context[tab]}</p>${tab === 'overview' ? `<div class="coach-tips">${UI.priorities(state).map(t => `<article><small>${t.focus}</small><h3>${t.title}</h3><p>${t.text}</p></article>`).join('')}</div>` : ''}</section>`;
 }
 const goals = { 営業: ['売上と受注', '供給能力に関係なく、契約を増やしたい。'], 開発: ['技術品質', '新機能を延期しても、基盤を直したい。'], 人事: ['定着と採用', '待遇改善にお金を使いたい。'], 経理: ['管理と利益', '投資を抑え、管理精度を高めたい。'], 広報: ['ブランド認知', '露出を増やしたい。炎上も認知になる。'], 法務: ['コンプライアンス', '成長を遅らせても、リスクを潰したい。'] };
@@ -180,7 +198,8 @@ function history() {
 }
 function render() {
   if (!state) return;
-  Sim.calculate(state);
+  Sim.calculate(state); Life.record(state);
+  music.mood = state.metrics.load > 100 || state.morale < 45 || state.cash < 200 ? 'tense' : 'calm';
   if (state.stage >= 2 && !state.proposals.length) {
     // Initial proposals appear on the next weekly executive report.
     state.proposals = [{ role: 'CTO', name: '水野 蒼', bias: '技術と可用性を最優先', action: 'research', quote: '組織拡大の前に、技術へ投資しましょう。' }];
@@ -195,7 +214,7 @@ function render() {
   $('ticker').innerHTML = `<span><span class="live-dot"></span> ${stages[state.stage]}</span><span>ECONOMY <b class="${state.economy >= 1 ? 'up' : 'down'}">${fmt(state.economy, 2)}×</b></span>${state.rivals.map(r => `<span>${r.name} <b>${fmt(r.share, 1)}%</b> <span class="${r.status === '競争中' ? 'cyan' : 'down'}">${r.status}</span></span>`).join('')}<span>CONTROL <b class="warn">${fmt(state.metrics.control)}%</b></span>`;
   const warning = state.metrics.load > 100 ? `サーバー負荷${fmt(state.metrics.load)}%。広告による需要が処理能力を超えています。` : state.morale < 50 ? '士気が低下。離職が生産力と残った社員に連鎖します。' : state.cash < 250 ? '手元資金が少なくなっています。利益と固定費を確認してください。' : state.legal > 60 ? '法務リスクが上昇。内部監査や法務の採用が必要です。' : '';
   $('alerts').innerHTML = state.ended ? `<div class="end-inline"><button data-end-show>最終レポート</button>${esc(state.ended.reason)} · 年表で経営を振り返れます。</div>` : state.event ? '<div class="alert-bar">△ 未解決の経営判断があります。<button data-event-show>判断を開く →</button></div>' : warning ? `<div class="alert-bar">△ ${warning}</div>` : '';
-  updatePreferences(); kpis(); $('content').innerHTML = (beginner() ? coaching() : '') + ({ overview, people, market, board, history })[tab]();
+  updatePreferences(); kpis(); $('content').innerHTML = (beginner() ? coaching() : '') + ({ overview, people, market, board, social, map: companyMap, history })[tab]();
   drawChart();
 }
 function drawChart() {
@@ -220,6 +239,8 @@ document.addEventListener('click', e => {
   const d = b.dataset;
   if (b.id !== 'pause' && !d.choice && !d.action) sound.play('click');
   if (d.tab) { tab = d.tab; render(); }
+  else if (d.channel) { socialChannel = d.channel === 'internet' ? 'internet' : 'staff'; render(); }
+  else if (d.room) { selectedRoom = d.room; render(); }
   else if (d.strategy) { selected = d.strategy; document.querySelectorAll('[data-strategy]').forEach(el => { el.classList.toggle('selected', el.dataset.strategy === selected); }); }
   else if (d.mode) setMode(d.mode);
   else if ('found' in d) { state = Sim.create($('company-name').value, selected); preview = false; tab = 'overview'; closeModal(false); render(); save(); sound.play('confirm'); toast('創業しました。まずは1週進めて決算を確認しましょう'); }
@@ -250,8 +271,11 @@ document.addEventListener('change', e => {
 $('sound-toggle').addEventListener('click', () => { preferences.sound = !preferences.sound; sound.setEnabled(preferences.sound); savePreferences(); updatePreferences(); });
 $('volume').addEventListener('input', e => { preferences.volume = Number(e.target.value) / 100; sound.volume = preferences.volume; savePreferences(); });
 $('volume').addEventListener('change', () => sound.play('confirm'));
-document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
-document.addEventListener('keydown', () => sound.unlock(), { capture: true });
+function unlockAudio() { sound.unlock(); if (!document.hidden) music.start(); }
+document.addEventListener('pointerdown', unlockAudio, { capture: true });
+document.addEventListener('keydown', unlockAudio, { capture: true });
+$('music-toggle').addEventListener('click', () => { preferences.music = !preferences.music; music.setEnabled(preferences.music); savePreferences(); updatePreferences(); });
+$('music-volume').addEventListener('input', e => { preferences.musicVolume = Number(e.target.value) / 100; music.setVolume(preferences.musicVolume); savePreferences(); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Tab' && modalType) {
     const focusable = [...$('modal-root').querySelectorAll('button:not(:disabled),input,select')];
@@ -265,7 +289,8 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); play(); } else if (e.key.toLowerCase() === 'n') advance();
 });
 window.addEventListener('resize', drawChart);
-document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); music.stop(); if (music.context?.state === 'running') music.context.suspend().catch(() => {}); } else music.start(); });
 window.addEventListener('beforeunload', () => { if (state) save(); });
 // The opening screen previews the actual dashboard without writing a save.
+$('nav').querySelector('[data-tab="history"]').insertAdjacentHTML('beforebegin', '<button data-tab="social">☷ <span>みんなの声</span></button><button data-tab="map">▦ <span>会社の様子</span></button>');
 state = Sim.create('ノヴァ株式会社', 'tech', 42); render(); foundingModal();
