@@ -6,7 +6,25 @@ PCブラウザ向けの経営シミュレーション。日本語、ダークテ
 
 ## 遊ぶ
 
-`index.html` をブラウザで開くだけで起動します。保存はブラウザのlocalStorageを利用します（ファイルを直接開く場合の保存可否はブラウザ設定によります）。安定した保存・ローカルプレビューにはNode.js 18以上で以下を実行してください。
+GitHub Pagesで公開後、**https://kumo-01.github.io/game1/** を開いて遊べます。プレイヤーのPCでNode.jsやローカルサーバーを起動する必要はありません。
+
+### GitHub Pagesの初回設定
+
+1. リポジトリの **Settings → Pages → Build and deployment** を開きます。
+2. **Source** に **GitHub Actions** を選択します。
+3. **Actions → Deploy game to GitHub Pages → Run workflow** を実行します。
+4. `build` と `deploy` が成功すると上記URLで公開されます。以後は `main` の更新時に自動でテスト・公開されます。
+
+公開設定： https://github.com/kumo-01/game1/settings/pages  
+デプロイ状況： https://github.com/kumo-01/game1/actions/workflows/pages.yml
+
+HTML/CSS/JavaScriptの参照はすべて相対パスで、GitHub Pagesの `/game1/` 配下でも動作します。公開対象はゲーム用の5ファイルだけで、テストやローカルサーバーは配信しません。`.nojekyll` でJekyllによる処理を無効にしています。
+
+保存はブラウザのlocalStorageを利用します。同じ端末・ブラウザで再開でき、GitHubへのログインはプレイに不要です。localhostでのセーブはGitHub Pagesには引き継がれません。
+
+### 開発用のローカルプレビュー（任意）
+
+`index.html` を直接開くか、Node.js 18以上で以下を実行してください。
 
 ```sh
 npm start
